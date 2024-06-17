@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Notes Keeper</title>
+    <link rel="stylesheet" href="index.css">
+</head>
+<body>
+    <div class="container">
+        <h1>Notes Keeper</h1>
+        <div class="note-input">
+            <input type="text" id="note-title" placeholder="Title">
+            <input type="text" id="note-tagline" placeholder="Tagline">
+            <textarea id="note-body" placeholder="Take a note..."></textarea>
+            <button id="add-note">Add Note</button>          
+        </div>
+        <div class="notes" id="notes">
+            <!-- Notes will appear here -->
+        </div>
+        <div class="pagination">
+            <button id="prev-page">Previous</button>
+            <button id="next-page">Next</button>
+        </div>
+        <div class="popup" id="popup">
+            <textarea id="note-content"></textarea>
+            <button id="save-note">Save</button>
+            <button id="close-popup">Close</button>
+        </div>
+    </div>
+    <script type="module">
+        // Import the functions you need from the SDKs you need
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+        import { getDatabase, ref, get, set, update, remove } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+
+        // Your web app's Firebase configuration
+        const firebaseConfig = {
+          apiKey: "AIzaSyA3XdzfiBQeIAUoRQGjYtTWGiqn9cx3FyA",
+          authDomain: "notes-2534d.firebaseapp.com",
+          projectId: "notes-2534d",
+          storageBucket: "notes-2534d.appspot.com",
+          messagingSenderId: "326925397266",
+          appId: "1:326925397266:web:9ac17a1c667b61c75b57cb"
+        };
+
+        // Initialize Firebase
+        const app = initializeApp(firebaseConfig);
+        const db = getDatabase(app);
+
+        let notes = [];
+        let currentPage = 1;
+        const notesPerPage = 6;
+
+        document.getElementById('add-note').addEventListener('click', function() {
+            const noteTitle = document.getElementById('note-title').value;
+            const noteTagline = document.getElementById('note-tagline').value;
+            const noteBody = document.getElementById('note-body').value;
+
+            const noteObj = {
+                id: Date.now(), // unique identifier
+                title: noteTitle,
+                tagLine: noteTagline,
+                body: noteBody,
+                pinned: false // new property for pinning notes
+            };
+
+            if (noteTitle.trim() !== "" || noteTagline.trim() !== "" || noteBody.trim() !== "") {
+                notes.push(noteObj);
+                showNotes();
+                insertData(noteObj);
+
+                document.getElementById('note-title').value = '';
+                document.getElementById('note-tagline').value = '';
+                document.getElementById('note-body').value = '';
+            } else {
+                alert("Add your note");
+            }
+        });
+
+        function showNotes() {
+            const noteSpace = document.getElementById('notes');
+            noteSpace.innerHTML = '';
+
+            // Sort notes with pinned notes first
+            notes.sort((a, b) => b.pinned - a.pinned);
+
+            const startIndex = (currentPage - 1) * notesPerPage;
+            const endIndex = startIndex + notesPerPage;
+            const paginatedNotes = notes.slice(startIndex, endIndex);
+
+            for (const note of paginatedNotes) {
+                const noteDiv = document.createElement('div');
+                noteDiv.classList.add('note');
+                noteDiv.innerHTML = `
+                    <button class="delete" data-id="${note.id}">Delete</button>
+                    <button class="pin" data-id="${note.id}">${note.pinned ? 'Unpin' : 'Pin'}</button>
+                    <button class="pop-out" data-id="${note.id}">Pop-Out</button>
+                    <h2>${note.title}</h2>
+                    <h3>${note.tagLine}</h3>
+                    <p>${note.body}</p>
+                `;
+                noteSpace.appendChild(noteDiv);
+            }
+
+            // Add event listeners for delete, pin/unpin, and pop-out buttons
+            document.querySelectorAll('.delete').forEach(button => {
+                button.addEventListener('click', (event) => {
+                    const noteId = event.target.getAttribute('data-id');
+                    removeData(noteId);
+                    notes = notes.filter(note => note.id !== parseInt(noteId));
+                    showNotes();
+                });
+            });
+
+            document.querySelectorAll('.pin').forEach(button => {
+                button.addEventListener('click', (event) => {
+                    const noteId = event.target.getAttribute('data-id');
+                    const note = notes.find(note => note.id === parseInt(noteId));
+                    note.pinned = !note.pinned;
+                    updateData(note);
+                    showNotes();
+                });
+            });
+
+            document.querySelectorAll('.pop-out').forEach(button => {
+                button.addEventListener('click', (event) => {
+                    const noteId = event.target.getAttribute('data-id');
+                    const note = notes.find(note => note.id === parseInt(noteId));
+                    openPopup(note);
+                });
+            });
+        }
+
+        function openPopup(note) {
+            const popup = document.querySelector("#popup");
+            const noteContent = document.querySelector("#note-content");
+            noteContent.value = note.body;
+            popup.style.display = "block";
+
+            document.querySelector("#save-note").onclick = () => {
+                note.body = noteContent.value;
+                popup.style.display = "none";
+                updateData(note);
+                showNotes();
+            };
+
+            document.querySelector("#close-popup").onclick = () => {
+                popup.style.display = "none";
+            };
+        }
+
+        function paginate() {
+            const prevPageButton = document.querySelector("#prev-page");
+            const nextPageButton = document.querySelector("#next-page");
+
+            prevPageButton.addEventListener("click", () => {
+                if (currentPage > 1) {
+                    currentPage--;
+                    showNotes();
+                }
+            });
+
+            nextPageButton.addEventListener("click", () => {
+                if (currentPage < Math.ceil(notes.length / notesPerPage)) {
+                    currentPage++;
+                    showNotes();
+                }
+            });
+        }
+
+        paginate();
+        getData();
+
+        function insertData(note) {
+            set(ref(db, "Notes/" + note.id), {
+                id: note.id, // Ensure id is saved
+                NoteTitle: note.title,
+                NoteTagLine: note.tagLine,
+                NoteBody: note.body,
+                Pinned: note.pinned
+            })
+            .then(() => {
+                console.log("Data stored successfully");
+            })
+            .catch((error) => {
+                console.error("Unsuccessful, error: " + error);
+            });
+        }
+
+        function updateData(note) {
+            set(ref(db, "Notes/" + note.id), {
+                id: note.id, // Ensure id is saved
+                NoteTitle: note.title,
+                NoteTagLine: note.tagLine,
+                NoteBody: note.body,
+                Pinned: note.pinned
+            })
+            .then(() => {
+                console.log("Data updated successfully");
+            })
+            .catch((error) => {
+                console.error("Unsuccessful, error: " + error);
+            });
+        }
+
+        function removeData(noteId) {
+            remove(ref(db, "Notes/" + noteId))
+            .then(() => {
+                console.log("Data removed successfully");
+            })
+            .catch((error) => {
+                console.error("Unsuccessful, error: " + error);
+            });
+        }
+
+        function getData() {
+            const dbRef = ref(db, 'Notes/');
+            get(dbRef).then((snapshot) => {
+                if (snapshot.exists()) {
+                    snapshot.forEach((childSnapshot) => {
+                        const data = childSnapshot.val();
+                        const noteObj = {
+                            id: data.id,
+                            title: data.NoteTitle,
+                            tagLine: data.NoteTagLine,
+                            body: data.NoteBody,
+                            pinned: data.Pinned
+                        };
+                        notes.push(noteObj);
+                    });
+                    showNotes();
+                } else {
+                    console.log("No data available");
+                }
+            })
+            .catch((error) => {
+                console.error("Unsuccessful, error: " + error);
+            });
+        }
+    </script>
+</body>
+</html>
